@@ -20,7 +20,7 @@ native-tls = [ "sys_native/native-tls" ]
 rustls = [ "sys_native/rustls" ]
 bundle-http = [ "sys_native/bundle-http" ]
 
-[dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 baml_version = { workspace = true }
 bex_events = { workspace = true }
 bex_project = { workspace = true }
@@ -36,6 +36,15 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [ "rt", "rt-multi-thread" ] }
 vfs = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bex_project = { workspace = true }
+bridge_ctypes = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+prost = { workspace = true }
+sys_ops = { workspace = true }
+thiserror = { workspace = true }
 
 [package.metadata.ci]
 wasm_support = false

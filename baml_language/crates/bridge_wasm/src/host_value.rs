@@ -100,6 +100,10 @@ thread_local! {
     /// are globally unique, so release-by-key is unambiguous across runtimes.
     static CALLABLES: RefCell<HashMap<u64, SendWrapper<Function>>> = RefCell::new(HashMap::new());
 
+    /// Optional SDK callback used to release host-owned opaque values kept in
+    /// a JS-side registry. Playground consumers do not need to install one.
+    static HOST_VALUE_RELEASE_CALLBACK: RefCell<Option<SendWrapper<Function>>> = const { RefCell::new(None) };
+
     /// `call_id → CompletionHandle`. Populated by [`WasmHost::call_host_value`]
     /// before firing `host_dispatch`; removed by [`complete_host_call`] when
     /// the JS dispatch wrapper completes the invocation. Call ids are globally
@@ -228,6 +232,30 @@ pub fn register_host_callable(callable: Function) -> u64 {
         cell.borrow_mut().insert(key, SendWrapper::new(callable));
     });
     key
+}
+
+/// Mint a key for a JS-owned opaque value from the same keyspace used by
+/// callable host values. Both kinds share one engine handle table.
+#[wasm_bindgen(js_name = mintHostValueKey)]
+pub fn mint_host_value_key() -> u64 {
+    next_key()
+}
+
+/// Register the JS callback that releases opaque values from the SDK's local
+/// registry when the engine drops its last corresponding `HostValueArc`.
+#[wasm_bindgen(js_name = registerHostValueReleaseCallback)]
+pub fn register_host_value_release_callback(callback: Function) {
+    HOST_VALUE_RELEASE_CALLBACK.with(|cell| {
+        cell.borrow_mut().replace(SendWrapper::new(callback));
+    });
+}
+
+/// Remove a callable that was registered but never transferred to the engine.
+#[wasm_bindgen(js_name = releaseHostCallable)]
+pub fn release_host_callable(key: u64) {
+    CALLABLES.with(|cell| {
+        cell.borrow_mut().remove(&key);
+    });
 }
 
 /// Complete an in-flight host call from JS.
@@ -367,6 +395,17 @@ extern "C" fn host_release_callback(key: u64) {
     CALLABLES.with(|cell| {
         cell.borrow_mut().remove(&key);
     });
+    HOST_VALUE_RELEASE_CALLBACK.with(|cell| {
+        let callback = cell
+            .borrow()
+            .as_ref()
+            .map(|callback| callback.inner().clone());
+        if let Some(callback) = callback {
+            if let Err(error) = callback.call1(&JsValue::NULL, &JsValue::from(key)) {
+                log::warn!("host-value release callback threw: {error:?}");
+            }
+        }
+    });
 }
 
 /// Install the global release-dispatch callback. Idempotent (first call wins).
@@ -399,16 +438,20 @@ pub(crate) struct WasmHost {
     /// JS signature: `(key: bigint, callId: number, argsBytes: Uint8Array) => void`.
     /// The wrapper is responsible for calling [`complete_host_call`] back.
     host_dispatch: SendWrapper<Function>,
+    /// SDK bridges register their callable dispatch closures directly in this
+    /// module. The playground keeps its existing per-runtime keyed dispatcher.
+    dispatch_registered_directly: bool,
 }
 
 impl WasmHost {
     /// Construct a new `WasmHost` bound to this runtime's `host_dispatch`
     /// callback, and install the global release callback (idempotent — only the
     /// first installation wins; the same fn pointer is installed each time).
-    pub(crate) fn new(host_dispatch: Function) -> Self {
+    pub(crate) fn new(host_dispatch: Function, dispatch_registered_directly: bool) -> Self {
         ensure_release_dispatch_installed();
         Self {
             host_dispatch: SendWrapper::new(host_dispatch),
+            dispatch_registered_directly,
         }
     }
 }
@@ -492,11 +535,6 @@ impl io::IoNamespaceHost for WasmHost {
         // error and dispatching would run the host callback for a failed call.
         let inserted = insert_in_flight(call_id, completion);
         if inserted {
-            // Fire *this runtime's* JS dispatch callback. The signature is
-            // `(key: bigint, callId: number, argsBytes: Uint8Array) => void`.
-            let host_dispatch = (*self.host_dispatch).clone();
-
-            let key_js = JsValue::from(host_arc.key);
             // u32 → f64 is lossless; the JS side reads `callId` as a plain Number.
             let call_id_js = JsValue::from_f64(f64::from(call_id));
             let args_js = js_sys::Uint8Array::new_with_length(
@@ -506,9 +544,27 @@ impl io::IoNamespaceHost for WasmHost {
                     .expect("host-call args payload exceeds u32::MAX"),
             );
             args_js.copy_from(&encoded);
-            if let Err(err) =
+            // SDK bridges register the dispatch closure directly in this
+            // module. Playground hosts can instead route unknown keys through
+            // the per-runtime `(key, callId, argsBytes)` callback.
+            let registered = self
+                .dispatch_registered_directly
+                .then(|| {
+                    CALLABLES.with(|cell| {
+                        cell.borrow()
+                            .get(&host_arc.key)
+                            .map(|callable| callable.inner().clone())
+                    })
+                })
+                .flatten();
+            let dispatched = if let Some(callable) = registered {
+                callable.call2(&JsValue::NULL, &call_id_js, &args_js.into())
+            } else {
+                let host_dispatch = (*self.host_dispatch).clone();
+                let key_js = JsValue::from(host_arc.key);
                 host_dispatch.call3(&JsValue::NULL, &key_js, &call_id_js, &args_js.into())
-            {
+            };
+            if let Err(err) = dispatched {
                 // The JS dispatch threw synchronously (before it could schedule
                 // work). Complete the in-flight call with an error.
                 let popped = IN_FLIGHT.with(|cell| cell.borrow_mut().remove(&call_id));

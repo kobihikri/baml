@@ -92,7 +92,10 @@ pub use bridge_ctypes::{
     HANDLE_TABLE, baml_bridge, external_to_outbound, playground_run_args_to_bex_values,
 };
 pub use error::BridgeError;
-pub use host_value::{complete_host_call, register_host_callable};
+pub use host_value::{
+    complete_host_call, mint_host_value_key, register_host_callable,
+    register_host_value_release_callback, release_host_callable,
+};
 use js_sys::Function;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -755,6 +758,7 @@ impl BamlWasmRuntime {
             // runtime clobber the first's).
             .with_host_instance(std::sync::Arc::new(host_value::WasmHost::new(
                 host_dispatch_fn,
+                false,
             )))
             .build();
         let sys_ops = std::sync::Arc::new(sys_ops);

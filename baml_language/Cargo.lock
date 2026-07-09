@@ -1548,6 +1548,7 @@ dependencies = [
  "prost",
  "serde_json",
  "sys_native",
+ "sys_ops",
  "sys_types",
  "thiserror 2.0.18",
  "tokio",
@@ -1646,6 +1647,17 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-logger",
  "web-time",
+]
+
+[[package]]
+name = "bridge_web"
+version = "0.0.0-beta"
+dependencies = [
+ "bridge_cffi",
+ "js-sys",
+ "sys_wasm",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -6540,6 +6552,7 @@ dependencies = [
  "borsh",
  "sdkgen_python_pydantic2",
  "sdkgen_typescript_node",
+ "sdkgen_typescript_web",
 ]
 
 [[package]]
@@ -6562,6 +6575,14 @@ dependencies = [
 
 [[package]]
 name = "sdk_test_typescript_node"
+version = "0.1.0"
+dependencies = [
+ "sdk_test_harness_runner",
+ "sdk_test_harness_setup",
+]
+
+[[package]]
+name = "sdk_test_typescript_web"
 version = "0.1.0"
 dependencies = [
  "sdk_test_harness_runner",
@@ -6592,6 +6613,14 @@ version = "0.0.0-beta"
 dependencies = [
  "baml_base",
  "baml_codegen_types",
+]
+
+[[package]]
+name = "sdkgen_typescript_web"
+version = "0.0.0-beta"
+dependencies = [
+ "baml_codegen_types",
+ "sdkgen_typescript_node",
 ]
 
 [[package]]
@@ -7229,6 +7258,32 @@ dependencies = [
  "num-bigint",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "sys_wasm"
+version = "0.0.0-beta"
+dependencies = [
+ "baml_type",
+ "bex_events",
+ "bex_heap",
+ "bex_project",
+ "bridge_ctypes",
+ "bytes",
+ "futures",
+ "indexmap",
+ "js-sys",
+ "log",
+ "num-bigint",
+ "num-traits",
+ "prost",
+ "reqwest",
+ "serde_json",
+ "sys_ops",
+ "sys_types",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
