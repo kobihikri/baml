@@ -804,7 +804,7 @@ mod tests {
 
     /// Allocates an instance whose fields point to the given objects.
     fn instance(class: HeapPtr, fields: Vec<Value>) -> HeapPtr {
-        heap_alloc(Object::Instance(Instance::new(class, Vec::new(), fields)))
+        heap_alloc(Object::Instance(Instance::new(class, Box::new([]), fields)))
     }
 
     #[test]
