@@ -5628,6 +5628,67 @@ async fn out_of_body_implements_is_visible_to_reflection_registry() {
     assert_eq!(output.result.unwrap(), BexExternalValue::Bool(true));
 }
 
+#[tokio::test]
+async fn cross_file_out_of_body_impl_matches_after_parent_interface_erasure() {
+    let program = baml_tests::engine::compile_multi_file(&[
+        (
+            "interfaces.baml",
+            r#"
+                interface Provider {
+                    function name(self) -> string throws never
+                }
+                interface ToolCallingProvider requires Provider {
+                    function tool_name(self) -> string throws never
+                }
+            "#,
+        ),
+        (
+            "providers/example/provider.baml",
+            r#"
+                class ExampleProvider {}
+                implements Provider for ExampleProvider {
+                    function name(self) -> string { return "example" }
+                }
+            "#,
+        ),
+        (
+            "providers/example/tools.baml",
+            r#"
+                implements ToolCallingProvider for ExampleProvider {
+                    function tool_name(self) -> string { return "search" }
+                }
+            "#,
+        ),
+        (
+            "main.baml",
+            r#"
+                function narrow(provider: Provider) -> string {
+                    match (provider) {
+                        let tools: ToolCallingProvider => tools.tool_name(),
+                        _ => "NO MATCH",
+                    }
+                }
+                function main() -> string {
+                    let provider: Provider = ExampleProvider {}
+                    return narrow(provider)
+                }
+            "#,
+        ),
+    ]);
+    let output = baml_tests::engine::run_compiled(
+        program,
+        "main",
+        baml_tests::engine::IndexMap::new(),
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        output.result.unwrap(),
+        BexExternalValue::String("search".into())
+    );
+}
+
 #[test]
 fn out_of_body_and_in_body_for_same_interface_is_error() {
     assert_compile_error_code(

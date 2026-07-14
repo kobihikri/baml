@@ -2471,6 +2471,40 @@ impl<'db> LoweringContext<'db> {
                         continue;
                     }
                 }
+
+                // A simple out-of-body implementation is folded onto the class
+                // only when both declarations are in the same file. When the
+                // class lives in another file it remains a free impl, so register
+                // its concrete class here as well. Without this, type checking
+                // and reflection see the impl through the canonical rule store,
+                // but MIR interface tests omit the class from their runtime tag
+                // set and silently take the wildcard arm.
+                //
+                // Concrete specializations of generic classes need argument-aware
+                // guards rather than this bare-class registry. Leave those on the
+                // precise rule path instead of overmatching every specialization.
+                if let baml_compiler2_tir::ty::Ty::Class(class_qtn, class_args, _) = &target_ty_tir
+                    && class_args.is_empty()
+                {
+                    let root_iface_args_tir = lower_interface_target_args(
+                        db,
+                        &imp.interface_target,
+                        pkg_items,
+                        &pkg_info.namespace_path,
+                        &imp_generic_params,
+                        impl_bounds,
+                        &mut diags,
+                    );
+                    if let Some(class_tn) = class_type_name_from_qtn(db, class_qtn) {
+                        register_class_for_interface_closure(
+                            db,
+                            root_iface_loc,
+                            &root_iface_args_tir,
+                            &class_tn,
+                            out.interface_implementors,
+                        );
+                    }
+                }
             }
         }
     }
